@@ -123,6 +123,15 @@ const App = () => {
     });
   };
 
+  const handleLogout = async () => {
+    setStep('onboarding');
+    setSelectedIngredients([]);
+    setPreferences({ diet: 'All', spiceLevel: 'Medium' });
+    setMealPlan([]);
+    setShoppingList([]);
+    await signOut(auth);
+  };
+
   if (authLoading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'var(--saffron)' }}>Loading...</div>;
   }
@@ -174,7 +183,7 @@ const App = () => {
           </button>
           <button 
             className="btn btn-outline"
-            onClick={() => signOut(auth)}
+            onClick={handleLogout}
             style={{ color: '#d32f2f' }}
           >
             <LogOut size={18} />
@@ -192,7 +201,7 @@ const App = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
               <h2>Your Weekly Meal Plan</h2>
               <button className="btn btn-outline" onClick={handleRegeneratePlan}>
-                Regenerate Whole Week
+                Regenerate
               </button>
             </div>
             <WeeklyPlanner plan={mealPlan} onRegenerateMeal={handleRegenerateMeal} />
