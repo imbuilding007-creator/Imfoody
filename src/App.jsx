@@ -1,73 +1,185 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Onboarding from './components/Onboarding';
 import WeeklyPlanner from './components/WeeklyPlanner';
 import ShoppingList from './components/ShoppingList';
+import Auth from './components/Auth';
 import { generateMealPlan, generateShoppingList } from './utils/planner';
-import { ChefHat, ShoppingCart, Calendar } from 'lucide-react';
+import { ChefHat, ShoppingCart, Calendar, LogOut } from 'lucide-react';
+import { auth, db } from './services/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import './index.css';
 
-function App() {
+const App = () => {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [step, setStep] = useState('onboarding'); // 'onboarding', 'planner', 'shopping'
   const [selectedIngredients, setSelectedIngredients] = useState([]);
   const [preferences, setPreferences] = useState({ diet: 'All', spiceLevel: 'Medium' });
   const [mealPlan, setMealPlan] = useState([]);
+  const [shoppingList, setShoppingList] = useState([]);
 
-  const handleCompleteOnboarding = (ingredients, prefs) => {
+  // Listen to Auth State
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      
+      if (currentUser) {
+        try {
+          const docRef = doc(db, "users", currentUser.uid);
+          const docSnap = await getDoc(docRef);
+          
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.mealPlan) {
+              setMealPlan(data.mealPlan);
+              setShoppingList(data.shoppingList);
+              setSelectedIngredients(data.selectedIngredients || []);
+              setPreferences(data.preferences || { diet: 'All' });
+              setStep('planner');
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching data from Firestore:", error);
+        }
+      }
+      
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleCompleteOnboarding = async (ingredients, prefs) => {
     setSelectedIngredients(ingredients);
     setPreferences(prefs);
+    
     const plan = generateMealPlan(ingredients, prefs);
+    const list = generateShoppingList(plan, ingredients);
+    
     setMealPlan(plan);
+    setShoppingList(list);
     setStep('planner');
+
+    if (user) {
+      try {
+        await setDoc(doc(db, "users", user.uid), {
+          mealPlan: plan,
+          shoppingList: list,
+          selectedIngredients: ingredients,
+          preferences: prefs,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error("Error saving data to Firestore:", error);
+      }
+    }
   };
 
-  const handleRegeneratePlan = () => {
+  const handleRegeneratePlan = async () => {
     const plan = generateMealPlan(selectedIngredients, preferences);
+    const list = generateShoppingList(plan, selectedIngredients);
     setMealPlan(plan);
+    setShoppingList(list);
+
+    if (user) {
+      try {
+        await setDoc(doc(db, "users", user.uid), {
+          mealPlan: plan,
+          shoppingList: list,
+          selectedIngredients,
+          preferences,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error("Error saving regenerated data to Firestore:", error);
+      }
+    }
   };
 
-  const handleRegenerateMeal = (dayIndex, mealType) => {
-    // Regenerates a single meal for a specific day while keeping the rest
-    // In a real app, we'd pass the current plan to avoid reusing meals incorrectly
+  const handleRegenerateMeal = async (dayIndex, mealType) => {
     const tempPlan = generateMealPlan(selectedIngredients, preferences);
     const newMeal = tempPlan[dayIndex].meals[mealType];
     
     setMealPlan(prev => {
       const updated = [...prev];
       updated[dayIndex].meals[mealType] = newMeal;
+      
+      // Also update shopping list and Firestore asynchronously
+      const list = generateShoppingList(updated, selectedIngredients);
+      setShoppingList(list);
+
+      if (user) {
+        setDoc(doc(db, "users", user.uid), {
+          mealPlan: updated,
+          shoppingList: list,
+          selectedIngredients,
+          preferences,
+          updatedAt: new Date().toISOString()
+        }).catch(error => console.error("Error saving specific meal:", error));
+      }
+      
       return updated;
     });
   };
+
+  if (authLoading) {
+    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'var(--saffron)' }}>Loading...</div>;
+  }
+
+  if (!user) {
+    return (
+      <div className="app-container">
+        <header className="header" style={{ justifyContent: 'center' }}>
+          <div className="header-logo">
+            <ChefHat size={32} />
+            <h1>ImFoody</h1>
+          </div>
+        </header>
+        <main className="main-content">
+          <Auth />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
       <header className="header">
         <div className="header-logo" onClick={() => setStep('planner')} style={{cursor: 'pointer'}}>
           <ChefHat size={32} />
-          <span>Spice & Plan</span>
+          <span>ImFoody</span>
         </div>
         
-        {step !== 'onboarding' && (
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <button 
-              className={`btn ${step === 'planner' ? 'btn-primary' : 'btn-outline'}`}
-              onClick={() => setStep('planner')}
-            >
-              <Calendar size={18} /> Plan
-            </button>
-            <button 
-              className={`btn ${step === 'shopping' ? 'btn-primary' : 'btn-outline'}`}
-              onClick={() => setStep('shopping')}
-            >
-              <ShoppingCart size={18} /> Grocery
-            </button>
-            <button 
-              className="btn btn-outline"
-              onClick={() => setStep('onboarding')}
-            >
-              Settings
-            </button>
-          </div>
-        )}
+        <div className="header-actions">
+          <button 
+            className={`btn ${step === 'planner' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setStep('planner')}
+            disabled={mealPlan.length === 0}
+          >
+            <Calendar size={18} /> Plan
+          </button>
+          <button 
+            className={`btn ${step === 'shopping' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setStep('shopping')}
+            disabled={mealPlan.length === 0}
+          >
+            <ShoppingCart size={18} /> Grocery
+          </button>
+          <button 
+            className="btn btn-outline"
+            onClick={() => setStep('onboarding')}
+          >
+            Settings
+          </button>
+          <button 
+            className="btn btn-outline"
+            onClick={() => signOut(auth)}
+            style={{ color: '#d32f2f' }}
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
       </header>
 
       <main className="main-content">
