@@ -1,10 +1,11 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { X, Flame, Clock, Users } from 'lucide-react';
 
 const RecipeModal = ({ recipe, onClose }) => {
   if (!recipe) return null;
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content animate-fade-in" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}><X /></button>
@@ -82,7 +83,8 @@ const RecipeModal = ({ recipe, onClose }) => {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
